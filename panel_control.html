@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Control de Depósitos - Bitgrow</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #1e293b; color: #e2e8f0; margin: 0; padding: 20px; }
+        .container { max-width: 700px; margin: 40px auto; background-color: #334155; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #475569;}
+        h1 { text-align: center; color: #5eead4; margin-bottom: 30px; }
+        #txid-input { width: 100%; box-sizing: border-box; padding: 12px; background-color: #1e293b; border: 1px solid #475569; border-radius: 8px; color: #e2e8f0; font-size: 1em; margin-bottom: 15px; }
+        .btn { width: 100%; box-sizing: border-box; padding: 12px 20px; font-size: 1.1em; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; }
+        #verify-btn { background-color: #5eead4; color: #0d9488; }
+        #verify-btn:hover { background-color: #99f6e4; }
+        .utility-buttons { margin-top: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .btn-secondary { background-color: #475569; color: #e2e8f0; font-size: 1em; }
+        .btn-secondary:hover { background-color: #64748b; }
+        .btn-danger { background-color: #9f1239; color: #fecdd3; font-size: 1em; }
+        .btn-danger:hover { background-color: #e11d48; }
+        .result-container { margin-top: 25px; padding: 20px; border-radius: 8px; display: none; }
+        .result-container.success { background-color: rgba(45, 212, 191, 0.1); border: 1px solid #2dd4bf; }
+        .result-container.error { background-color: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; }
+        .result-container p { margin: 0 0 10px; font-size: 1.1em; }
+        .result-container strong { color: #cbd5e1; }
+        .result-badge { padding: 4px 8px; border-radius: 12px; font-size: 0.9em; font-weight: bold; }
+        .badge-new { background-color: #22c55e; color: #f0fdf4; }
+        .badge-repeated { background-color: #f97316; color: #fff7ed; }
+        .badge-invalid { background-color: #ef4444; color: #fef2f2; }
+        .action-buttons { display: none; justify-content: center; gap: 20px; margin-top: 20px; }
+        .btn-approve { background-color: #22c55e; color: #f0fdf4; flex-grow: 1; }
+        .btn-approve:hover { background-color: #4ade80; }
+        .btn-reject { background-color: #ef4444; color: #fef2f2; flex-grow: 1; }
+        .btn-reject:hover { background-color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Panel de Verificación de Depósitos</h1>
+        <input type="text" id="txid-input" placeholder="Pegar el código de transacción (TXID)">
+        <button id="verify-btn" class="btn" onclick="verifyTransaction()">Verificar Transacción</button>
+        <div class="utility-buttons">
+            <button class="btn btn-secondary" onclick="pasteFromClipboard()">Pegar Código</button>
+            <button class="btn btn-danger" onclick="confirmReset()">Restablecer Panel</button>
+        </div>
+        <div id="result-box" class="result-container">
+            <p><strong>Estado:</strong> <span id="status-badge" class="result-badge"></span></p>
+            <p><strong>Monto:</strong> <span id="amount-details"></span></p>
+            <p><strong>Red:</strong> <span id="network-details"></span></p>
+        </div>
+        <div id="actions-box" class="action-buttons">
+            <button class="btn btn-approve" onclick="approveTransaction()">Aprobar Depósito</button>
+            <button class="btn btn-reject" onclick="rejectTransaction()">Rechazar</button>
+        </div>
+    </div>
+
+    <script>
+        let currentTxid = null;
+
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                document.getElementById('txid-input').value = text;
+            } catch (err) {
+                alert('No se pudo pegar el texto. Asegúrate de haber dado permiso a la página.');
+            }
+        }
+
+        async function verifyTransaction() {
+            const txid = document.getElementById('txid-input').value.trim();
+            if (!txid) return;
+            
+            resetResult();
+            
+            try {
+                const response = await fetch('/api/verificar-txid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ txid })
+                });
+                const data = await response.json();
+                displayResult(data);
+
+            } catch (error) {
+                displayResult({ status: 'ERROR_CONEXION', message: 'No se pudo conectar con el servidor.' });
+            }
+        }
+        
+        async function approveTransaction() {
+            if (!currentTxid) return;
+
+            try {
+                const response = await fetch('/api/aprobar-txid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ txid: currentTxid })
+                });
+                const data = await response.json();
+                alert(data.mensaje);
+                resetState();
+
+            } catch (error) {
+                 alert('Error al conectar con el servidor para aprobar.');
+            }
+        }
+        
+        function rejectTransaction() {
+            alert('Operación rechazada.');
+            resetState();
+        }
+
+        function confirmReset() {
+            const userConfirmed = confirm("¿Estás seguro de que quieres restablecer el panel? Se limpiará el código TXID actual.");
+            if (userConfirmed) {
+                resetState();
+                alert("Panel restablecido.");
+            }
+        }
+
+        function displayResult(data) {
+            const resultBox = document.getElementById('result-box');
+            const statusBadge = document.getElementById('status-badge');
+            
+            resultBox.style.display = 'block';
+            statusBadge.textContent = data.status;
+
+            if (data.status === 'NUEVO') {
+                currentTxid = data.txid;
+                resultBox.className = 'result-container success';
+                statusBadge.className = 'result-badge badge-new';
+                document.getElementById('amount-details').textContent = `${data.details.amount.toFixed(4)} USDT`;
+                document.getElementById('network-details').textContent = data.details.network;
+                document.getElementById('actions-box').style.display = 'flex';
+            } else {
+                 resultBox.className = 'result-container error';
+                 document.getElementById('amount-details').textContent = '---';
+                 document.getElementById('network-details').textContent = '---';
+                 if (data.status === 'REPETIDO') {
+                    statusBadge.className = 'result-badge badge-repeated';
+                 } else {
+                    statusBadge.className = 'result-badge badge-invalid';
+                 }
+            }
+        }
+        
+        function resetResult() {
+            document.getElementById('result-box').style.display = 'none';
+            document.getElementById('actions-box').style.display = 'none';
+            currentTxid = null;
+        }
+
+        function resetState() {
+            resetResult();
+            document.getElementById('txid-input').value = '';
+        }
+    </script>
+</body>
+</html>
